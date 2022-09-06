@@ -1,7 +1,8 @@
 import pickle
 import os
 import logging
-from tensorflow.keras.models import load_model
+import tensorflow
+from tensorflow.keras import Model
 from tensorflow.keras.callbacks import ModelCheckpoint
 
 from .callbacks import EpochCounter, HistoryLogger
@@ -24,25 +25,25 @@ class ResumableModel(object):
 
   Returns: A Keras History.history dictionary of the entire training process.
   """
-  def __init__(self, model, custom_objects=None, save_every_epochs=10, to_path="model.h5"):
+  def __init__(self, model, custom_objects=None, save_freq=1, to_path='checkpoints'):
     
-    assert save_every_epochs > 0
+    assert save_freq > 0
 
     self.model = model
-    self.save_every_epochs = save_every_epochs
+    self.save_every_epochs = save_freq
     self.custom_objects = custom_objects
     self.to_path = to_path
     self.prefix = os.path.splitext(to_path)[0]
+    self.pardir = os.path.sep.join(os.path.split(to_path)[:-1])
     self.epoch_num_file = self.prefix + "_epoch_num.pkl"
     self.history_file = self.prefix + "_history.pkl"
-
     # recover latest epoch
     self.initial_epoch = self.get_epoch_num()
     # recover history
     self.history = self.get_history()
     # recover model from path
-    if os.path.exists(to_path):
-      self.model = load_model(to_path, custom_objects=self.custom_objects)
+    if os.path.isdir(self.pardir):
+      self.model = Model.load_weights(to_path, custom_objects=self.custom_objects)
       logger = logging.getLogger()
       logger.info(f"Recovered model from {to_path} at epoch {self.initial_epoch}.")
 
@@ -61,7 +62,7 @@ class ResumableModel(object):
     if 'callbacks' not in kwargs:
       kwargs['callbacks'] = []
     kwargs['callbacks'].append(HistoryLogger(period=self.save_every_epochs, history_path=self.history_file, recovered_history=self.history))
-    kwargs['callbacks'].append(ModelCheckpoint(self.to_path, verbose=True, period=self.save_every_epochs))
+    kwargs['callbacks'].append(ModelCheckpoint(self.to_path, verbose=True, save_freq=self.save_every_epochs, save_weights_only=True))
     kwargs['callbacks'].append(EpochCounter(period=self.save_every_epochs, counter_path=self.epoch_num_file))
     # Warn user if the training is already complete.
     if 'epochs' in kwargs and self.initial_epoch >= kwargs['epochs']:
